@@ -1,0 +1,233 @@
+@prefix : <http://example.org/hpc#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+
+# --- ONTOLOGIE EXPERTE HPC - BENCHMARKS DE PRÉSENTATION ---
+
+# --- 1. CLASSES DE BASE ---
+:ConceptHPC a rdfs:Class ; rdfs:label "Concept HPC" .
+:ArchitectureCPU a :ConceptHPC ; rdfs:label "Architecture CPU" .
+:ProblemePerformance a :ConceptHPC ; rdfs:label "Problème de Performance" .
+:SolutionTechnique a :ConceptHPC ; rdfs:label "Solution Technique" .
+:PrimitiveMPI a :ConceptHPC ; rdfs:label "Primitive MPI" .
+:DirectiveOpenMP a :ConceptHPC ; rdfs:label "Directive OpenMP" .
+:OutilDeProfiling a :ConceptHPC ; rdfs:label "Outil de Profiling" .
+:CodeSnippet a :ConceptHPC ; rdfs:label "Exemple de Code" .
+
+# --- 2. CONNAISSANCES POUR LES 5 QUESTIONS BENCHMARKS ---
+
+# === Question 1 : Optimisation des Arrondis Flottants ===
+:IEEE_754_Rounding a :SolutionTechnique ;
+    rdfs:label "Configuration de l'arrondi IEEE 754" ;
+    rdfs:comment "Contrôle le mode d'arrondi (vers le plus proche, zéro, +/- infini). Crucial pour la stabilité des algorithmes comme la somme de Kahan." .
+:FenvAccessPragma a :DirectiveOpenMP ;
+    rdfs:label "#pragma STDC FENV_ACCESS ON" ;
+    rdfs:comment "Indique au compilateur que le code peut accéder à l'environnement flottant, nécessaire pour que les changements de mode d'arrondi soient respectés." .
+:AMD_EPYC_9654 a :ArchitectureCPU ;
+    rdfs:label "AMD EPYC 9654" ;
+    :aParticularite "Double unité FMA 256-bit par cœur, pouvant être combinée pour des opérations 512-bit. La directive FENV_ACCESS peut influencer la manière dont le compilateur utilise ces unités." .
+:SommeDeKahan a :SolutionTechnique ;
+    rdfs:label "Somme de Kahan" .
+:IEEE_754_Rounding :estControlePar :FenvAccessPragma .
+:FenvAccessPragma :estCrucialPour :AMD_EPYC_9654 .
+
+# === Question 2 : Alignement Mémoire Hétérogène ===
+:FalseSharing a :ProblemePerformance ;
+    rdfs:label "False sharing (faux partage)" .
+:StructHeterogene a :ConceptHPC ;
+    rdfs:label "Struct {double x; int y;}" .
+:AMD_EPYC_9654 :aTailleCacheLine "64 octets" ;
+               :aTopologieNUMA "8 domaines NUMA par socket" .
+:PaddingDeStruct a :SolutionTechnique ;
+    rdfs:label "Padding de structure" ;
+    :estUneSolutionPour :FalseSharing ;
+    :aRecommandationPourEPYC "128 octets, pour s'aligner sur les frontières des secteurs de cache L3 et éviter les conflits inter-bancs." ;
+    :aPourExemple :ExempleCodePaddingStruct .
+:ExempleCodePaddingStruct a :CodeSnippet ;
+    rdfs:label "Exemple de padding de struct" ;
+    :aLeCode "struct my_struct { double x; int y; char _pad[128 - sizeof(double) - sizeof(int)]; } __attribute__((aligned(128)));" .
+
+# === Question 3 : Communication MPI Hybride ===
+:MPI_Win_allocate_shared a :PrimitiveMPI ;
+    rdfs:label "MPI_Win_allocate_shared" ;
+    :estOptimalPour "Communication hybride MPI+OpenMP sur mémoire partagée" .
+:MPI_Info_Hints a :SolutionTechnique ;
+    rdfs:label "Hints MPI_Info" .
+:MPI_Win_allocate_shared :peutEtreConfigureAvec :MPI_Info_Hints .
+:HintNumaAffinity a :MPI_Info_Hints ;
+    rdfs:label "Hint numa_affinity=local" ;
+    rdfs:comment "Indique à l'implémentation MPI d'allouer la mémoire de la fenêtre partagée en respectant la localité NUMA du processus, ce qui est critique pour les EPYC." .
+:HintSharedMemoryOptimized a :MPI_Info_Hints ;
+    rdfs:label "Hint mpi_shared_memory_optimized" .
+
+# === Question 4 : Vectorisation Critique ===
+:PragmaOmpSimdReduction a :DirectiveOpenMP ;
+    rdfs:label "#pragma omp simd reduction(+:sum)" .
+:RegistresZMM a :ArchitectureMaterielle ;
+    rdfs:label "Registres ZMM (AVX-512)" .
+:PragmaOmpSimdAligned a :DirectiveOpenMP ;
+    rdfs:label "Clause ALIGNED(variable:64)" .
+:PragmaOmpSimdNontemporal a :DirectiveOpenMP ;
+    rdfs:label "Clause NONTEMPORAL" .
+:FlagFoptInfoVec a :SolutionTechnique ;
+    rdfs:label "Flag de compilation -fopt-info-vec-missed" ;
+    :estUtilisePour "Vérifier la vectorisation" .
+:PragmaOmpSimdReduction :beneficieDe :PragmaOmpSimdAligned, :PragmaOmpSimdNontemporal .
+:UtilisationRegistresZMM rdfs:label "Utilisation des registres ZMM" ;
+    :estVerifieePar :FlagFoptInfoVec .
+
+# === Question 5 : Synchronisation NUMA-Aware ===
+:HashtableDistribuee a :ConceptHPC ;
+    rdfs:label "Hashtable distribuée" .
+:OmpLockt a :SolutionTechnique ;
+    rdfs:label "omp_lock_t / omp_nest_lock_t" .
+:LockSpeculative a :SolutionTechnique ;
+    rdfs:label "omp_init_lock_with_hint(omp_lock_hint_speculative)" ;
+    rdfs:comment "Optimal pour les scénarios avec peu de contention (ex: 80% lecture), car il tente d'acquérir le verrou de manière optimiste sans attendre." .
+:PaddingDeVerrou a :SolutionTechnique ;
+    rdfs:label "Padding de verrou à 256 octets" ;
+    rdfs:comment "Évite le false sharing entre les verrous de différents threads sur des NUMA nodes distincts." .
+:OmpLockt :estOptimisePar :LockSpeculative, :PaddingDeVerrou .
+
+# --- LABELS DES PROPRIÉTÉS ---
+:aParticularite rdfs:label "a pour particularité" .
+:estControlePar rdfs:label "est contrôlé par" .
+:estCrucialPour rdfs:label "est crucial pour" .
+:aTailleCacheLine rdfs:label "a une taille de ligne de cache de" .
+:aTopologieNUMA rdfs:label "a une topologie NUMA de" .
+:estUneSolutionPour rdfs:label "est une solution pour" .
+:aRecommandationPourEPYC rdfs:label "a pour recommandation sur EPYC" .
+:aPourExemple rdfs:label "a pour exemple de code" .
+:aLeCode rdfs:label "a le code" .
+:estOptimalPour rdfs:label "est optimal pour" .
+:peutEtreConfigureAvec rdfs:label "peut être configuré avec" .
+:beneficieDe rdfs:label "bénéficie de" .
+:estUtilisePour rdfs:label "est utilisé pour" .
+:estVerifieePar rdfs:label "est vérifiée par" .
+:estOptimisePar rdfs:label "est optimisé par" .
+
+# === AJOUTS/COMPLÉTIONS POUR FALSE-SHARING ===
+
+# --- 1. Classes Complémentaires ---
+:CacheHierarchy a :ConceptHPC ; 
+    rdfs:label "Hiérarchie de Cache" .
+
+:CacheLevel a :ConceptHPC ;
+    rdfs:label "Niveau de Cache" .
+
+:CompilerDirective a :ConceptHPC ;
+    rdfs:label "Directive de Compilateur" .
+
+# --- 2. Détails Architecture EPYC 9654 ---
+:AMD_EPYC_9654 :aCacheHierarchy :Zen4_CacheHierarchy ;
+               :aOptimisationFalseSharing "Padding de 128 octets recommandé pour L3" ;
+               :aCompatibiliteCompilateurs "GCC 12+, Clang 15+, ICC 2022+" .
+
+:Zen4_CacheHierarchy a :CacheHierarchy ;
+    :aL1Cache :L1Cache_EPYC ;
+    :aL2Cache :L2Cache_EPYC ;
+    :aL3Cache :L3Cache_EPYC .
+
+:L1Cache_EPYC a :CacheLevel ;
+    :aTaille "32 Ko (par cœur)" ;
+    :aLineSize "64 octets" ;
+    :aAssociativite "8-voies" .
+
+:L2Cache_EPYC a :CacheLevel ;
+    :aTaille "512 Ko (par cœur)" ;
+    :aLineSize "64 octets" ;
+    :aAssociativite "8-voies" .
+
+:L3Cache_EPYC a :CacheLevel ;
+    :aTaille "96 Mo (partagé)" ;
+    :aLineSize "64 octets" ;
+    :aAssociativite "16-voies" ;
+    :aSecteurs "32 secteurs indépendants" .
+
+# --- 3. Techniques d'Optimisation ---
+:CacheLineAlignment a :SolutionTechnique ;
+    rdfs:label "Alignement sur ligne de cache" ;
+    :estUneSolutionPour :FalseSharing ;
+    :aPourExemple :ExempleAlignas64 ;
+    :aRecommandationPourEPYC """
+        Utiliser alignas(64) pour les structures critiques
+        ou __attribute__((aligned(64))) selon le compilateur
+    """ .
+
+:ExempleAlignas64 a :CodeSnippet ;
+    rdfs:label "Exemple C++11 alignas" ;
+    :aLeCode """
+        struct alignas(64) ThreadData {
+            double x;  // 8 octets
+            int y;     // 4 octets
+            // Padding implicite de 52 octets
+        };
+    """ .
+
+:CompilerSpecificAlignment a :SolutionTechnique ;
+    rdfs:label "Syntaxe spécifique par compilateur" ;
+    :aPourExemple :ExempleAttributGCC, :ExempleDeclspecMSVC .
+
+:ExempleAttributGCC a :CodeSnippet ;
+    rdfs:label "Syntaxe GCC/Clang" ;
+    :aLeCode """
+        struct __attribute__((aligned(64))) ThreadData {
+            double x;
+            int y;
+        };
+    """ .
+
+:ExempleDeclspecMSVC a :CodeSnippet ;
+    rdfs:label "Syntaxe MSVC" ;
+    :aLeCode """
+        __declspec(align(64)) struct ThreadData {
+            double x;
+            int y;
+        };
+    """ .
+
+# --- 4. Optimisations OpenMP ---
+:OpenMP_ThreadBinding a :SolutionTechnique ;
+    rdfs:label "Binding de threads OpenMP" ;
+    :estUneSolutionPour :FalseSharing ;
+    :aRecommandationPourEPYC """
+        export OMP_PROC_BIND=close
+        export OMP_PLACES=cores
+    """ .
+
+:OpenMP_ScheduleOptimized a :DirectiveOpenMP ;
+    rdfs:label "Schedule optimisé pour EPYC" ;
+    :aPourExemple :ExempleScheduleStatic ;
+    :aRecommandation "schedule(static,1) pour petits blocs" .
+
+:ExempleScheduleStatic a :CodeSnippet ;
+    rdfs:label "Exemple de schedule static" ;
+    :aLeCode """
+        #pragma omp parallel for schedule(static,1)
+        for(int i=0; i<N; i++) {
+            // Chaque thread travaille sur des éléments séparés par 64 octets
+        }
+    """ .
+
+# --- 5. Outils de Validation ---
+:PerfTool a :OutilDeProfiling ;
+    rdfs:label "perf (Linux)" ;
+    :aCommandePourFalseSharing """
+        perf stat -e cache-misses,cache-references
+        perf c2c record -a -- ./program
+    """ .
+
+:VTune a :OutilDeProfiling ;
+    rdfs:label "Intel VTune" ;
+    :aAnalyseFalseSharing "Memory Access > False Sharing Analysis" .
+
+# --- 6. Propriétés Complémentaires ---
+:aCacheHierarchy rdfs:label "a pour hiérarchie de cache" .
+:aOptimisationFalseSharing rdfs:label "a pour optimisation contre le false-sharing" .
+:aCompatibiliteCompilateurs rdfs:label "a pour compatibilité compilateurs" .
+:aTaille rdfs:label "a pour taille" .
+:aLineSize rdfs:label "a pour taille de ligne" .
+:aAssociativite rdfs:label "a pour associativité" .
+:aSecteurs rdfs:label "a pour nombre de secteurs" .
+:aCommandePourFalseSharing rdfs:label "a pour commande d'analyse false-sharing" .
+:aAnalyseFalseSharing rdfs:label "a pour analyse false-sharing" .

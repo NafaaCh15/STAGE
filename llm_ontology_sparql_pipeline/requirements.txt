@@ -1,0 +1,4 @@
+rdflib
+pytest
+streamlit
+requests
